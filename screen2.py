@@ -1,5 +1,6 @@
 #!/router/bin/python-2.7.10
 
+import math
 import os
 import random
 import subprocess
@@ -13,16 +14,27 @@ from OpenGL.GL      import *
 from OpenGL.GLUT    import *
 from OpenGL.GLU     import *
 
-filename = '/users/aaronhil/Pictures/screen.png'
+#modes
+SHUFFLE = 0
+DIFFUSION = 1
+WOBBLE = 2
+
+
+
+filename = os.path.join(os.path.dirname(__file__), "screen.png")
+
+
 
 def r(x, y, tileSize):
     return np.ix_(range(x, x+tileSize), range(y, y+tileSize))
 
 class Controller():
 
-    def __init__(self, w, h):
+    def __init__(self, w, h, size=2, mode=SHUFFLE):
         self.w = w
         self.h = h
+        self.size = 2
+        self.mode = SHUFFLE 
         
         self.screenBuffer = None
         self.canvas = None
@@ -33,28 +45,49 @@ class Controller():
         self.numDraws = 0
         self.drawTime = 0
 
+        # wobble vars
+        self.maxSpeed = 0.005 
+        self.p1 = np.array([0, 0])
+        self.points = np.array([[0, 0],
+                                [self.w, 0],
+                                [self.w, self.h],
+                                [0, self.h]], dtype=np.float32)
+        self.velocities = np.array([[0, 0],
+                                    [0, 0],
+                                    [0, 0],
+                                    [0, 0]], dtype = np.float32)
+        
         self.init()
+        self.bufferType = 0
+        self.stepFunctions=[self.stepShuffle, self.stepDiffusion, self.stepWobble]
 
     def init(self):
         os.system('import -window root {}'.format(filename))        
         img = Image.open(filename)
         self.screenBuffer = np.array(list(img.getdata()), np.uint8)
+        self.screenBufferF = self.screenBuffer.astype(np.float32) / 256.0
         self.canvas = self.screenBuffer.reshape((self.h, self.w, 3))
-        
+        self.canvasF = self.screenBufferF.reshape((self.h, self.w, 3))
+        self.bufferType = [0, 1, 0][self.mode]
+
         print "width:  {}".format(self.w)
         print "height: {}".format(self.h)
         print "size:   {}".format(self.screenBuffer.shape)
         glPixelStorei(GL_UNPACK_ALIGNMENT, 4)
         self.textureID = glGenTextures(1)
 
+        if self.mode == WOBBLE:
+            #self.velocities[0][0] = 0.01
+            for v in self.velocities[:1]:
+                v[0] = random.random() * self.maxSpeed * 2 - self.maxSpeed
+                v[1] = random.random() * self.maxSpeed * 2 - self.maxSpeed
+
     def quit(self):
         print "average draw time: {}".format(1000 * self.drawTime / self.numDraws)
         print "average step time: {}".format(1000 * self.stepTime / self.numSteps)
 
+    def stepShuffle(self):
 
-    def step(self):
-        global tileSize
-        t0 = time.time()
         xTiles = self.w // tileSize
         yTiles = self.h // tileSize
 
@@ -70,8 +103,45 @@ class Controller():
         else:
             self.canvas[r(x1, y1, tileSize)] = self.canvas[r(x2, y1, tileSize)]
             self.canvas[r(x2, y1, tileSize)] = window
+    
+    def stepDiffusion(self):
+        x = random.randint(0, self.w - 1)
+        y = random.randint(0, self.h - 1)
+
+        val = self.canvasF[y][x]
+        total = np.array([0, 0, 0], dtype=np.float32)
+        for i in range(-self.size, self.size + 1):
+            for j in range(-self.size, self.size + 1):
+                cx = (x + i) % self.w
+                cy = (y + j) % self.h
+                total += self.canvasF[cy][cx]
+        self.canvasF[y][x] = total / ((self.size * 2 + 1) ** 2)
+
+    def stepWobble(self):
+        
+        for i in range(4):
+            self.points[i] += self.velocities[i]
+            
+            if self.points[i][0] < 0:
+                self.points[i][0] *= -1
+                self.velocities[i][0] = -random.random() * self.maxSpeed
+            if self.points[i][1] < 0:
+                self.points[i][1] *= -1
+                self.velocities[i][1] = random.random() * self.maxSpeed
+            if self.points[i][0] > self.w:
+                self.points[i][0] -= 2 * (self.points[i][0] - self.w)
+                self.velocities[i][0] = 0#random.random() * self.maxSpeed
+            if self.points[i][1] > self.h:
+                self.points[i][1] -= 2 * (self.points[i][1] - self.h)
+                self.velocities[i][1] = 0#random.random() * self.maxSpeed
 
 
+    def step(self):
+        global tileSize
+        t0 = time.time()
+
+        self.stepFunctions[self.mode]()
+        # self.stepShuffle()
         self.numSteps += 1
         self.stepTime += time.time() - t0
 
@@ -97,16 +167,16 @@ class Controller():
                      self.h, 
                      0, 
                      GL_RGB, 
-                     GL_UNSIGNED_BYTE, 
-                     self.screenBuffer)
+                     [GL_UNSIGNED_BYTE, GL_FLOAT][self.bufferType], 
+                     [self.screenBuffer, self.screenBufferF][self.bufferType])
 
         glScalef(0.5, -0.5, 1.0)
 
         glBegin(GL_QUADS)
-        glTexCoord2f(0, 0);             glVertex2i(0, 0)
-        glTexCoord2f(self.w, 0);        glVertex2i(self.w, 0)
-        glTexCoord2f(self.w, self.h);   glVertex2i(self.w, self.h)
-        glTexCoord2f(0, self.h);        glVertex2i(0, self.h)
+        glTexCoord2f(self.points[0][0], self.points[0][1]);     glVertex2i(0, 0)
+        glTexCoord2f(self.points[1][0], self.points[1][1]);     glVertex2i(self.w, 0)
+        glTexCoord2f(self.points[2][0], self.points[2][1]);     glVertex2i(self.w, self.h)
+        glTexCoord2f(self.points[3][0], self.points[3][1]);     glVertex2i(0, self.h)
         glEnd()
         glFlush()
         glDisable(GL_TEXTURE_2D)
@@ -125,6 +195,7 @@ def initFunc():
 def keyboardFunc(key, x, y):
     if key == 'q':
         controller.quit()
+        os.remove(filename)
         exit()
 
 def displayFunc():
