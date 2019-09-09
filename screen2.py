@@ -46,12 +46,14 @@ class Controller():
         self.drawTime = 0
 
         # wobble vars
+        self.gridWidth = 2
+        self.gridHeight = max(2, int(self.gridWidth / (self.w / self.h)))
+        
         self.maxSpeed = 0.005 
-        self.p1 = np.array([0, 0])
-        self.points = np.array([[0, 0],
-                                [self.w, 0],
-                                [self.w, self.h],
-                                [0, self.h]], dtype=np.float32)
+        self.points = np.array([[[x, y] for x in np.linspace(0, self.w, self.gridWidth)] for y in np.linspace(0, self.h, self.gridHeight)])
+        self.vertCoords = np.array([[[x, y] for x in np.linspace(0, self.w, self.gridWidth)] for y in np.linspace(0, self.h, self.gridHeight)], dtype=np.float32)
+        self.imgCoords  = np.array([[[x, y] for x in np.linspace(0, self.w, self.gridWidth)] for y in np.linspace(0, self.h, self.gridHeight)], dtype=np.uint)
+        
         self.velocities = np.array([[0, 0],
                                     [0, 0],
                                     [0, 0],
@@ -173,10 +175,20 @@ class Controller():
         glScalef(0.5, -0.5, 1.0)
 
         glBegin(GL_QUADS)
+        """
         glTexCoord2f(self.points[0][0], self.points[0][1]);     glVertex2i(0, 0)
         glTexCoord2f(self.points[1][0], self.points[1][1]);     glVertex2i(self.w, 0)
         glTexCoord2f(self.points[2][0], self.points[2][1]);     glVertex2i(self.w, self.h)
         glTexCoord2f(self.points[3][0], self.points[3][1]);     glVertex2i(0, self.h)
+        """
+        for y in range(self.gridHeight - 1):
+            for x in range(self.gridWidth - 1):
+
+                glTexCoord2f(self.vertCoords[y][x][0],      self.vertCoords[y][x][1]);      glVertex2i(self.imgCoords[y][x][0],     self.imgCoords[y][x][1])
+                glTexCoord2f(self.vertCoords[y][x+1][0],    self.vertCoords[y][x+1][1]);    glVertex2i(self.imgCoords[y][x+1][0],   self.imgCoords[y][x+1][1])
+                glTexCoord2f(self.vertCoords[y+1][x+1][0],  self.vertCoords[y+1][x+1][1]);  glVertex2i(self.imgCoords[y+1][x+1][0], self.imgCoords[y+1][x+1][1])
+                glTexCoord2f(self.vertCoords[y+1][x][0],    self.vertCoords[y+1][x][1]);    glVertex2i(self.imgCoords[y+1][x][0],   self.imgCoords[y+1][x][1])
+        
         glEnd()
         glFlush()
         glDisable(GL_TEXTURE_2D)
@@ -193,10 +205,17 @@ def initFunc():
     gluOrtho2D(0.0, w, 0.0, h)
     
 def keyboardFunc(key, x, y):
+    global controller
     if key == 'q':
         controller.quit()
         os.remove(filename)
         exit()
+    elif key == 'r':
+        for i in range(controller.gridWidth):
+            for j in range(controller.gridHeight):
+                controller.vertCoords[i][j][0] += random.random() * 10 - 5
+                controller.vertCoords[i][j][1] += random.random() * 10 - 5
+
 
 def displayFunc():
     global controller
